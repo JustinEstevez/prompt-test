@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -23,12 +23,16 @@ export default function TimeLogScreen() {
   const tint = Colors[colorScheme].tint;
   const borderColor = Colors[colorScheme].icon;
 
+  const [mode, setMode] = useState<'timer' | 'manual'>('timer');
   const [selectedTaskId, setSelectedTaskId] = useState(TASKS[0].id);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [activeTask, setActiveTask] = useState<{ id: string; label: string } | null>(null);
   const [activeSpeedMultiplier, setActiveSpeedMultiplier] = useState(1);
   const [debugMode, setDebugMode] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [manualHoursText, setManualHoursText] = useState('');
+  const [manualMinutesText, setManualMinutesText] = useState('');
+  const [manualError, setManualError] = useState<string | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
 
   const isRunning = startedAt !== null;
@@ -45,7 +49,9 @@ export default function TimeLogScreen() {
     const task = TASKS.find((t) => t.id === selectedTaskId)!;
     setActiveTask({ id: task.id, label: task.label });
     setActiveSpeedMultiplier(debugMode ? DEBUG_SPEED_MULTIPLIER : 1);
-    setStartedAt(Date.now());
+    const startTime = Date.now();
+    setNow(startTime);
+    setStartedAt(startTime);
   }
 
   function handleStop() {
@@ -59,6 +65,36 @@ export default function TimeLogScreen() {
     }
     setStartedAt(null);
     setActiveTask(null);
+  }
+
+  function handleManualMinutesChange(text: string) {
+    const digitsOnly = text.replace(/[^0-9]/g, '');
+    if (digitsOnly === '') {
+      setManualMinutesText('');
+      return;
+    }
+    const clamped = Math.min(parseInt(digitsOnly, 10), 59);
+    setManualMinutesText(`${clamped}`);
+  }
+
+  function handleLogManual() {
+    const hours = manualHoursText.trim() ? parseInt(manualHoursText, 10) : 0;
+    const minutes = manualMinutesText.trim() ? parseInt(manualMinutesText, 10) : 0;
+    const totalMinutes = hours * 60 + minutes;
+
+    if (totalMinutes <= 0) {
+      setManualError('Enter an amount of time greater than 0.');
+      return;
+    }
+
+    const task = TASKS.find((t) => t.id === selectedTaskId)!;
+    setEntries((prev) => [
+      { id: `${Date.now()}-${Math.random()}`, taskId: task.id, taskLabel: task.label, ms: totalMinutes * 60000 },
+      ...prev,
+    ]);
+    setManualHoursText('');
+    setManualMinutesText('');
+    setManualError(null);
   }
 
   function handleRemove(id: string) {
@@ -86,8 +122,30 @@ export default function TimeLogScreen() {
         <ThemedView style={styles.header}>
           <ThemedText type="title">Time Log</ThemedText>
           <ThemedText style={styles.subtitle}>
-            Start the stopwatch when you begin a task, stop it when you&apos;re done.
+            Track a task with the stopwatch, or log time for it manually.
           </ThemedText>
+
+          <View style={styles.modeRow}>
+            {(['timer', 'manual'] as const).map((m) => {
+              const selected = mode === m;
+              return (
+                <Pressable
+                  key={m}
+                  disabled={isRunning}
+                  onPress={() => setMode(m)}
+                  style={[
+                    styles.modeButton,
+                    { borderColor },
+                    selected && { backgroundColor: hexToRgba(tint, 0.15), borderColor: tint },
+                  ]}>
+                  <ThemedText
+                    style={[styles.chipText, selected && { color: tint, fontWeight: '600' }]}>
+                    {m === 'timer' ? 'Timer' : 'Manual'}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+          </View>
 
           <ThemedText type="defaultSemiBold" style={styles.sectionLabel}>
             Task
@@ -114,24 +172,64 @@ export default function TimeLogScreen() {
             })}
           </View>
 
-          <ThemedText style={styles.stopwatch}>
-            {isRunning ? formatStopwatch(elapsedMs) : '0:00'}
-          </ThemedText>
+          {mode === 'timer' ? (
+            <>
+              <ThemedText style={styles.stopwatch}>
+                {isRunning ? formatStopwatch(elapsedMs) : '0:00'}
+              </ThemedText>
 
-          <Pressable
-            style={[styles.actionButton, { backgroundColor: isRunning ? '#e74c3c' : tint }]}
-            onPress={isRunning ? handleStop : handleStart}>
-            <ThemedText style={styles.actionButtonText}>
-              {isRunning ? 'Stop Timer' : 'Start Timer'}
-            </ThemedText>
-          </Pressable>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: isRunning ? '#e74c3c' : tint }]}
+                onPress={isRunning ? handleStop : handleStart}>
+                <ThemedText style={styles.actionButtonText}>
+                  {isRunning ? 'Stop Timer' : 'Start Timer'}
+                </ThemedText>
+              </Pressable>
 
-          <View style={styles.debugRow}>
-            <ThemedText style={styles.debugLabel}>
-              Debug mode ({DEBUG_SPEED_MULTIPLIER}x speed)
-            </ThemedText>
-            <Switch value={debugMode} onValueChange={setDebugMode} disabled={isRunning} />
-          </View>
+              <View style={styles.debugRow}>
+                <ThemedText style={styles.debugLabel}>
+                  Debug mode ({DEBUG_SPEED_MULTIPLIER}x speed)
+                </ThemedText>
+                <Switch value={debugMode} onValueChange={setDebugMode} disabled={isRunning} />
+              </View>
+            </>
+          ) : (
+            <>
+              <ThemedText type="defaultSemiBold" style={styles.sectionLabel}>
+                Time
+              </ThemedText>
+              <View style={styles.durationRow}>
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.input, { borderColor, color: Colors[colorScheme].text }]}
+                    placeholder="0"
+                    placeholderTextColor={borderColor}
+                    value={manualHoursText}
+                    onChangeText={(text) => setManualHoursText(text.replace(/[^0-9]/g, ''))}
+                    keyboardType="numeric"
+                  />
+                  <ThemedText style={styles.durationFieldLabel}>hours</ThemedText>
+                </View>
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.input, { borderColor, color: Colors[colorScheme].text }]}
+                    placeholder="0"
+                    placeholderTextColor={borderColor}
+                    value={manualMinutesText}
+                    onChangeText={handleManualMinutesChange}
+                    keyboardType="numeric"
+                  />
+                  <ThemedText style={styles.durationFieldLabel}>minutes</ThemedText>
+                </View>
+              </View>
+
+              {manualError && <ThemedText style={styles.error}>{manualError}</ThemedText>}
+
+              <Pressable style={[styles.actionButton, { backgroundColor: tint }]} onPress={handleLogManual}>
+                <ThemedText style={styles.actionButtonText}>Log Time</ThemedText>
+              </Pressable>
+            </>
+          )}
         </ThemedView>
       }
       renderItem={({ item }) => (
@@ -186,6 +284,18 @@ const styles = StyleSheet.create({
   sectionLabel: {
     marginTop: 12,
   },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  modeButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -202,6 +312,30 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 14,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  durationField: {
+    flex: 1,
+    gap: 4,
+  },
+  durationFieldLabel: {
+    opacity: 0.6,
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  error: {
+    color: '#e74c3c',
   },
   stopwatch: {
     fontSize: 48,
