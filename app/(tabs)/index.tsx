@@ -7,7 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { DEFAULT_TASKS, TaskType } from '@/constants/tasks';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { decimalHoursFromMinutes, formatStopwatch } from '@/utils/time';
+import { decimalHoursFromMinutes, formatStopwatch, parseTime12h } from '@/utils/time';
 import { hexToRgba } from '@/utils/color';
 import { normalizeTaskName } from '@/utils/tasks';
 
@@ -41,6 +41,9 @@ export default function TimeLogScreen() {
   const [manualHoursText, setManualHoursText] = useState('');
   const [manualMinutesText, setManualMinutesText] = useState('');
   const [manualError, setManualError] = useState<string | null>(null);
+  const [rangeStartText, setRangeStartText] = useState('');
+  const [rangeEndText, setRangeEndText] = useState('');
+  const [rangeError, setRangeError] = useState<string | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
 
   const isRunning = startedAt !== null;
@@ -129,6 +132,34 @@ export default function TimeLogScreen() {
     setManualHoursText('');
     setManualMinutesText('');
     setManualError(null);
+  }
+
+  function handleLogRange() {
+    const start = parseTime12h(rangeStartText);
+    const end = parseTime12h(rangeEndText);
+
+    if (start === null || end === null) {
+      setRangeError('Enter times like 1:35pm and 3:45pm.');
+      return;
+    }
+
+    // Allow an overnight span (e.g. 11:00pm - 1:00am) by wrapping past midnight.
+    let totalMinutes = end - start;
+    if (totalMinutes < 0) totalMinutes += 24 * 60;
+
+    if (totalMinutes <= 0) {
+      setRangeError('End time must be after start time.');
+      return;
+    }
+
+    const task = tasks.find((t) => t.id === selectedTaskId)!;
+    setEntries((prev) => [
+      { id: `${Date.now()}-${Math.random()}`, taskLabel: task.label, ms: totalMinutes * 60000 },
+      ...prev,
+    ]);
+    setRangeStartText('');
+    setRangeEndText('');
+    setRangeError(null);
   }
 
   function handleRemove(id: string) {
@@ -333,6 +364,42 @@ export default function TimeLogScreen() {
               {manualError && <ThemedText style={styles.error}>{manualError}</ThemedText>}
 
               <Pressable style={[styles.actionButton, { backgroundColor: tint }]} onPress={handleLogManual}>
+                <ThemedText style={[styles.actionButtonText, { color: tintTextColor }]}>Log Time</ThemedText>
+              </Pressable>
+
+              <ThemedText type="defaultSemiBold" style={styles.sectionLabel}>
+                Time Range
+              </ThemedText>
+              <View style={styles.durationRow}>
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.input, { borderColor, color: Colors[colorScheme].text }]}
+                    placeholder="1:35pm"
+                    placeholderTextColor={borderColor}
+                    value={rangeStartText}
+                    onChangeText={setRangeStartText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <ThemedText style={styles.durationFieldLabel}>start</ThemedText>
+                </View>
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.input, { borderColor, color: Colors[colorScheme].text }]}
+                    placeholder="3:45pm"
+                    placeholderTextColor={borderColor}
+                    value={rangeEndText}
+                    onChangeText={setRangeEndText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <ThemedText style={styles.durationFieldLabel}>end</ThemedText>
+                </View>
+              </View>
+
+              {rangeError && <ThemedText style={styles.error}>{rangeError}</ThemedText>}
+
+              <Pressable style={[styles.actionButton, { backgroundColor: tint }]} onPress={handleLogRange}>
                 <ThemedText style={[styles.actionButtonText, { color: tintTextColor }]}>Log Time</ThemedText>
               </Pressable>
             </>
